@@ -1,0 +1,113 @@
+# import json
+# import cv2
+# import requests
+# from modules import parser, detection, inpainting, relocation, relighting, utils
+
+
+
+# # Load API keys
+# with open("config/api_keys.json") as f:
+#     api_keys = json.load(f)
+
+# # Inputs
+# instruction = "Move the car to the left and add sunset light."
+# image_path = "input/scene.jpg"
+
+# # 1. Parse instruction
+# parsed = parser.parse_instruction(instruction, api_keys['openai_api_key'])
+# print(parsed)
+
+# # 2. Object detection + segmentation
+# bbox, mask = detection.detect_object(image_path, parsed['object'], api_keys['grounding_dino_api_key'], api_keys['sam_api_key'])
+
+# # Save mask to file for next stages
+# with open("results/mask.png", 'wb') as f:
+#     f.write(mask.encode())
+
+# # 3. Inpainting
+# inpainted_url = inpainting.inpaint_image(image_path, "results/mask.png", "remove " + parsed['object'], api_keys['replicate_api_key'])
+# utils.download_image(inpainted_url, "results/inpainted.png")
+
+# # 4. Relocation (toy example shift)
+# shift = (-100, 0)  # move 100px left
+# new_image = relocation.relocate_object("results/inpainted.png", "results/mask.png", bbox, shift)
+# cv2.imwrite("results/relocated.png", new_image)
+
+# # 5. Relighting
+# relighted_url = relighting.relight_image("results/relocated.png", parsed['lighting'], api_keys['replicate_api_key'])
+# utils.download_image(relighted_url, "results/final_output.png")
+
+# print("Pipeline Complete. Check results folder.")
+
+from modules import parser, detection, inpainting, relocation, relighting, utils
+import cv2
+from dotenv import load_dotenv
+import os
+import json
+
+
+
+if __name__ == "__main__":
+    load_dotenv()
+
+    api_keys = {
+        "openai_api_key": os.getenv("OPENAI_API_KEY"),
+        "replicate_api_key": os.getenv("REPLICATE_API_KEY")
+    }
+
+    user_instruction = "Move the car to the left and add sunset light."
+    system_instruction = """
+    You are an intelligent instruction parser.
+    Extract the object, action, location, and lighting from the user input.
+    Always return a valid JSON object with the following format:
+    {"object": object (string), "action": action (string), "location": location (string), "lighting": lighting (string)}.
+    Do not include any additional text or explanation.
+    """
+
+    # # Parsing instruction
+    # parsed = parser.parse_instruction(user_instruction, system_instruction, api_keys['openai_api_key'])
+
+    # # For, testing
+    # print(parsed)
+
+    parsed = {'object': 'car', 'action': 'move', 'location': 'left', 'lighting': 'sunset'}  # For, testing
+
+    # Resizing: To match the inpaiting model's requirements
+    image = cv2.imread("./inputs/scene.png")
+
+    image_resized = cv2.resize(image, (512, 512), interpolation=cv2.INTER_LANCZOS4)
+    cv2.imwrite("./inputs/scene_resized.png", image_resized)
+
+    image_path = "./inputs/scene_resized.png"
+
+    # Detection (Grounding DINO via Replicate)
+    bbox = detection.detect_object(image_path, parsed['object'], api_keys['replicate_api_key'])
+
+    # print("Detected BBox:", bbox)
+
+    # bbox = [248, 232, 472, 417] # For, testing
+
+    # Segmentation (SAM via Hugging Face Transformers)
+    mask = detection.segment_object(image_path, bbox)
+
+    cv2.imwrite("../results/example_1/mask.png", (mask * 255).astype("uint8"))
+    cv2.imwrite("../results/example_1/mask_1.png", mask.astype("uint8"))
+
+    # Inpainting via Replicate Stable Diffusion
+    inpainted_url = inpainting.inpaint_image(image_path, "../results/example_1/mask.png", "remove " + parsed['object'], api_keys['replicate_api_key'])
+
+    utils.download_image(inpainted_url[0], "../results/example_1/inpainted.png")
+
+    # Relocation (toy example shift)
+    shift = (-100, 0)
+    bbox_int = list(map(int, bbox))
+    new_image = relocation.relocate_object("../results/example_1/inpainted.png", "../results/example_1/mask.png", bbox_int, shift)
+
+    cv2.imwrite("../results/example_1/relocated.png", new_image)
+
+    # Relighting
+    relighted_url = relighting.relight_image("../results/example_1/relocated.png", "../results/example_1/mask.png",  "relight the scene to match" + parsed['lighting'], api_keys['replicate_api_key'])
+
+    utils.download_image(relighted_url[0], "../results/example_1/final_output.png")
+
+    print("Pipeline Complete")

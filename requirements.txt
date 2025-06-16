@@ -1,0 +1,8 @@
+openai
+requests
+replicate
+opencv-python
+numpy
+transformers
+torch
+Pillow
