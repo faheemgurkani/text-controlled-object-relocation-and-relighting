@@ -20,11 +20,8 @@ def normalize_box(bbox, width, height):
 
     return normalized_bbox
 
+# DETR via Hugging Face Transformers
 def detect_object(image_path, object_name, threshold=0.5):
-    """
-    Detects the specified object using DETR.
-    Returns one bbox [xmin, ymin, xmax, ymax] or raises ValueError.
-    """
     processor = DetrImageProcessor.from_pretrained("facebook/detr-resnet-50")
     model = DetrForObjectDetection.from_pretrained("facebook/detr-resnet-50")
 

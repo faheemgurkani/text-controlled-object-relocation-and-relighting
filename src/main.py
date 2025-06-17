@@ -1,67 +1,21 @@
-# import json
-# import cv2
-# import requests
-# from modules import parser, detection, inpainting, relocation, relighting, utils
-
-
-
-# # Load API keys
-# with open("config/api_keys.json") as f:
-#     api_keys = json.load(f)
-
-# # Inputs
-# instruction = "Move the car to the left and add sunset light."
-# image_path = "input/scene.jpg"
-
-# # 1. Parse instruction
-# parsed = parser.parse_instruction(instruction, api_keys['openai_api_key'])
-# print(parsed)
-
-# # 2. Object detection + segmentation
-# bbox, mask = detection.detect_object(image_path, parsed['object'], api_keys['grounding_dino_api_key'], api_keys['sam_api_key'])
-
-# # Save mask to file for next stages
-# with open("results/mask.png", 'wb') as f:
-#     f.write(mask.encode())
-
-# # 3. Inpainting
-# inpainted_url = inpainting.inpaint_image(image_path, "results/mask.png", "remove " + parsed['object'], api_keys['replicate_api_key'])
-# utils.download_image(inpainted_url, "results/inpainted.png")
-
-# # 4. Relocation (toy example shift)
-# shift = (-100, 0)  # move 100px left
-# new_image = relocation.relocate_object("results/inpainted.png", "results/mask.png", bbox, shift)
-# cv2.imwrite("results/relocated.png", new_image)
-
-# # 5. Relighting
-# relighted_url = relighting.relight_image("results/relocated.png", parsed['lighting'], api_keys['replicate_api_key'])
-# utils.download_image(relighted_url, "results/final_output.png")
-
-# print("Pipeline Complete. Check results folder.")
-
 from modules import parser, detection, inpainting, relocation, relighting, utils
 import cv2
 from dotenv import load_dotenv
 import os
-import json
 
 
-
-import cv2
 
 def draw_bbox_on_image(image_path, bbox, output_path="../results/example_1/bbox_test.png"):
     image = cv2.imread(image_path)
     
-    # Ensure bbox is a list of ints
+    # Ensuring bbox is a list of ints
     x, y, w, h = map(int, bbox)
 
-    # Draw the bounding box (red rectangle)
     cv2.rectangle(image, (x, y), (x + w, y + h), color=(0, 0, 255), thickness=2)
 
-    # Save the image with the drawn bbox
     cv2.imwrite(output_path, image)
 
-    # print(f"Bounding box drawn and saved to {output_path}")
+    # print(f"Bounding box drawn and saved to {output_path}")   # For, testing
 
 if __name__ == "__main__":
     load_dotenv()
