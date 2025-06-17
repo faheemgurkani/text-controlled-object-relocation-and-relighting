@@ -28,6 +28,3 @@ Thumbs.db
 
 # Test artifacts
 tests/rough.py
-
-# Results and outputs
-results/
