@@ -47,6 +47,22 @@ import json
 
 
 
+import cv2
+
+def draw_bbox_on_image(image_path, bbox, output_path="../results/example_1/bbox_test.png"):
+    image = cv2.imread(image_path)
+    
+    # Ensure bbox is a list of ints
+    x, y, w, h = map(int, bbox)
+
+    # Draw the bounding box (red rectangle)
+    cv2.rectangle(image, (x, y), (x + w, y + h), color=(0, 0, 255), thickness=2)
+
+    # Save the image with the drawn bbox
+    cv2.imwrite(output_path, image)
+
+    # print(f"Bounding box drawn and saved to {output_path}")
+
 if __name__ == "__main__":
     load_dotenv()
 
@@ -70,7 +86,7 @@ if __name__ == "__main__":
     # # For, testing
     # print(parsed)
 
-    parsed = {'object': 'car', 'action': 'move', 'location': 'left', 'lighting': 'sunset'}  # For, testing
+    parsed = {'object': 'car', 'action': 'move', 'location': 'left', 'lighting': 'night'}  # For, testing
 
     # Resizing: To match the inpaiting model's requirements
     image = cv2.imread("./inputs/scene.png")
@@ -81,7 +97,10 @@ if __name__ == "__main__":
     image_path = "./inputs/scene_resized.png"
 
     # Detection (Grounding DINO via Replicate)
-    bbox = detection.detect_object(image_path, parsed['object'], api_keys['replicate_api_key'])
+    # bbox = detection.detect_object(image_path, parsed['object'], api_keys['replicate_api_key'])
+    bbox = detection.detect_object(image_path, parsed['object'])
+
+    draw_bbox_on_image(image_path, bbox)
 
     # print("Detected BBox:", bbox)
 
@@ -90,20 +109,31 @@ if __name__ == "__main__":
     # Segmentation (SAM via Hugging Face Transformers)
     mask = detection.segment_object(image_path, bbox)
 
-    cv2.imwrite("../results/example_1/mask.png", (mask * 255).astype("uint8"))
-    cv2.imwrite("../results/example_1/mask_1.png", mask.astype("uint8"))
+    # cv2.imwrite("../results/example_1/mask.png", (mask * 255).astype("uint8"))
+    # cv2.imwrite("../results/example_1/mask_1.png", mask.astype("uint8"))
+
+    binary_mask = (mask > 0.5).astype("uint8")
+    
+    cv2.imwrite("../results/example_1/mask.png", binary_mask * 255)
 
     # Inpainting via Replicate Stable Diffusion
-    inpainted_url = inpainting.inpaint_image(image_path, "../results/example_1/mask.png", "remove " + parsed['object'], api_keys['replicate_api_key'])
+    inpainted_url = inpainting.inpaint_image(image_path, "../results/example_1/mask.png", f"Remove the object {parsed['object']} and restore the scene realistically. without the said object", api_keys['replicate_api_key'])
 
     utils.download_image(inpainted_url[0], "../results/example_1/inpainted.png")
 
     # Relocation (toy example shift)
-    shift = (-100, 0)
     bbox_int = list(map(int, bbox))
-    new_image = relocation.relocate_object("../results/example_1/inpainted.png", "../results/example_1/mask.png", bbox_int, shift)
+    shift = (-100, 0)
+    relocated = relocation.relocate_object(
+        "../results/example_1/inpainted.png",
+        "../results/example_1/mask.png",
+        bbox_int,
+        shift,
+        scale=0.9,
+        add_shadow=True
+    )
 
-    cv2.imwrite("../results/example_1/relocated.png", new_image)
+    cv2.imwrite("../results/example_1/relocated.png", relocated)
 
     # Relighting
     relighted_url = relighting.relight_image("../results/example_1/relocated.png", "../results/example_1/mask.png",  "relight the scene to match" + parsed['lighting'], api_keys['replicate_api_key'])

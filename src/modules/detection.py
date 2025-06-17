@@ -1,5 +1,5 @@
 import replicate
-from transformers import SamProcessor, SamModel
+from transformers import SamProcessor, SamModel, DetrImageProcessor, DetrForObjectDetection
 from PIL import Image
 import torch
 import numpy as np
@@ -20,55 +20,90 @@ def normalize_box(bbox, width, height):
 
     return normalized_bbox
 
-# Grounding DINO via Replicate API
-def detect_object(image_path, object_name, replicate_api_key):
-    client = replicate.Client(api_token=replicate_api_key)
-    # model = client.models.get("adirik/grounding-dino")
+def detect_object(image_path, object_name, threshold=0.5):
+    """
+    Detects the specified object using DETR.
+    Returns one bbox [xmin, ymin, xmax, ymax] or raises ValueError.
+    """
+    processor = DetrImageProcessor.from_pretrained("facebook/detr-resnet-50")
+    model = DetrForObjectDetection.from_pretrained("facebook/detr-resnet-50")
 
-    # output = model.run(
-    #     image=open(image_path, "rb"),
-    #     query=object_name,
-    #     box_threshold=0.5,
-    #     text_threshold=0.25
-    # )
-
-    # output = client.run(
-    #     "adirik/grounding-dino",
-    #     input={
-    #         "image": open(image_path, "rb"),
-    #         "query": object_name,
-    #         "box_threshold": 0.5,
-    #         "text_threshold": 0.25
-    #     }
-    # )
-
-    # # Replicate returns list of boxes, take first
-    # bbox = output["boxes"][0]  # format: [x_min, y_min, x_max, y_max]
-
-    uploaded_file = client.files.create(open(image_path, "rb"))
-
-    # print(uploaded_file)    # For, testing
-
-    uploaded_file_url = uploaded_file.urls['get']
-
-    outputs = client.run(
-        "adirik/grounding-dino:efd10a8ddc57ea28773327e881ce95e20cc1d734c589f7dd01d2036921ed78aa",  # model identifier
-        use_file_output=False,
-        input={
-            "image": uploaded_file_url,
-            "query": object_name,
-            "box_threshold": 0.5,
-            "text_threshold": 0.25
-        },
-        api_token=replicate_api_key
-    )
+    img = Image.open(image_path).convert("RGB")
+    inputs = processor(images=img, return_tensors="pt")
     
-    # outputs is a list; extract from the first element
-    # print(outputs)  # For, testing
+    with torch.no_grad():
+        outputs = model(**inputs)
 
-    bbox = outputs['detections'][0]['bbox']
+    target_sizes = torch.tensor([img.size[::-1]])  # (H, W)
+    results = processor.post_process_object_detection(
+        outputs, target_sizes=target_sizes, threshold=threshold
+    )[0]
+
+    # Collect candidate boxes where label text matches object_name (case-insensitive)
+    bboxes = []
+    for score, label_idx, box in zip(results["scores"], results["labels"], results["boxes"]):
+        label = model.config.id2label[label_idx.item()]
     
-    return bbox
+        if label.lower() == object_name.lower():
+            bboxes.append((score.item(), [round(v) for v in box.tolist()]))
+
+    if not bboxes:
+        raise ValueError(f"No '{object_name}' found at threshold {threshold}")
+
+    # Return bbox with highest confidence
+    best = max(bboxes, key=lambda x: x[0])
+    
+    return best[1]
+
+# # Grounding DINO via Replicate API
+# def detect_object(image_path, object_name, replicate_api_key):
+#     client = replicate.Client(api_token=replicate_api_key)
+#     # model = client.models.get("adirik/grounding-dino")
+
+#     # output = model.run(
+#     #     image=open(image_path, "rb"),
+#     #     query=object_name,
+#     #     box_threshold=0.5,
+#     #     text_threshold=0.25
+#     # )
+
+#     # output = client.run(
+#     #     "adirik/grounding-dino",
+#     #     input={
+#     #         "image": open(image_path, "rb"),
+#     #         "query": object_name,
+#     #         "box_threshold": 0.5,
+#     #         "text_threshold": 0.25
+#     #     }
+#     # )
+
+#     # # Replicate returns list of boxes, take first
+#     # bbox = output["boxes"][0]  # format: [x_min, y_min, x_max, y_max]
+
+#     uploaded_file = client.files.create(open(image_path, "rb"))
+
+#     # print(uploaded_file)    # For, testing
+
+#     uploaded_file_url = uploaded_file.urls['get']
+
+#     outputs = client.run(
+#         "adirik/grounding-dino:efd10a8ddc57ea28773327e881ce95e20cc1d734c589f7dd01d2036921ed78aa",  # model identifier
+#         use_file_output=False,
+#         input={
+#             "image": uploaded_file_url,
+#             "query": object_name,
+#             "box_threshold": 0.5,
+#             "text_threshold": 0.25
+#         },
+#         api_token=replicate_api_key
+#     )
+    
+#     # outputs is a list; extract from the first element
+#     # print(outputs)  # For, testing
+
+#     bbox = outputs['detections'][0]['bbox']
+    
+#     return bbox
 
 def segment_object(image_path, bbox):
     processor = SamProcessor.from_pretrained("facebook/sam-vit-base")
@@ -76,7 +111,9 @@ def segment_object(image_path, bbox):
 
     image = Image.open(image_path).convert("RGB")
 
-    # print("Image size:", image.size)  # For, testing
+    # # For, testing
+    # print("Image size:", image.size)   # (width, height)
+    # print("Bounding box:", bbox)       # (x0, y0, x1, y1)
 
     # Sanity checks
     width, height = image.size
@@ -85,14 +122,14 @@ def segment_object(image_path, bbox):
     assert 0 <= y0 < y1 <= height
 
     # NOTE: SAM expects input_boxes as [ [ [x0, y0, x1, y1] ] ]
-    normalized_bbox = normalize_box(bbox, width, height)
+    # normalized_bbox = normalize_box(bbox, width, height)
 
     # # For, testing
     # print("Image size:", width, height)
     # print("Normalized bbox:", normalized_bbox)
 
-    # inputs = processor(images=image, input_boxes=[[normalized_bbox]], return_tensors="pt")
-    inputs = processor(images=image, input_boxes=[[list(normalized_bbox)]], return_tensors="pt")
+    inputs = processor(images=image, input_boxes=[[list(bbox)]], return_tensors="pt")
+    # inputs = processor(images=image, input_boxes=[[list(normalized_bbox)]], return_tensors="pt")
 
     with torch.no_grad():
         outputs = model(**inputs)
@@ -121,5 +158,8 @@ def segment_object(image_path, bbox):
     # binary_mask = masks[0][0].numpy()
     # binary_mask = masks[0][0].squeeze().numpy()
     binary_mask = np.squeeze(masks[0][0][0].numpy())
+
+    # # For, testing
+    # print("Unique mask values:", np.unique(binary_mask))
     
     return binary_mask
