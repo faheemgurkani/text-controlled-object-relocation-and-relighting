@@ -61,103 +61,103 @@
 
 #     return out.images[0]
 
-# # Suggested paper method (Works)
-# from diffusers import StableDiffusionInstructPix2PixPipeline, EulerAncestralDiscreteScheduler, StableDiffusionInpaintPipeline
-# from PIL import Image
-# import cv2
-
-
-
-# def inpaint_image(image_path, mask_path, instruction, device="cpu", model_name="paint-by-inpaint/general-finetuned-mb"):
-    
-#     image = Image.open(image_path).convert("RGB")
-#     mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
-    
-#     pipe = StableDiffusionInstructPix2PixPipeline.from_pretrained(
-#         model_name
-#     ).to(device)
-#     pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(pipe.scheduler.config)
-
-#     # Applying edit
-#     output = pipe(
-#         prompt=instruction,
-#         image=image,
-#         guidance_scale=7.5,
-#         image_guidance_scale=1.5,
-#         num_inference_steps=50,
-#         num_images_per_prompt=1
-#     )
-
-#     return output.images[0]  # PIL.Image
-
-# Another googled approach (Under testing)
+# Suggested paper method (Works)
+from diffusers import StableDiffusionInstructPix2PixPipeline, EulerAncestralDiscreteScheduler, StableDiffusionInpaintPipeline
+from PIL import Image
 import cv2
-from PIL import Image, ImageChops
-
-from controlnet_union import ControlNetModel_Union
-from diffusers import AutoencoderKL, StableDiffusionXLControlNetPipeline, TCDScheduler, ControlNetUnionModel
 
 
 
-def inpaint_image(image_path, mask_path):
+def inpaint_image(image_path, mask_path, instruction, device="cpu", model_name="paint-by-inpaint/general-finetuned-mb"):
+    
     image = Image.open(image_path).convert("RGB")
     mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
     
-    width, height = image.size
-    min_dimension = min(width, height)
+    pipe = StableDiffusionInstructPix2PixPipeline.from_pretrained(
+        model_name
+    ).to(device)
+    pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(pipe.scheduler.config)
 
-    left = (width - min_dimension) / 2
-    top = (height - min_dimension) / 2
-    right = (width + min_dimension) / 2
-    bottom = (height + min_dimension) / 2
-
-    final_source = image.crop((left, top, right, bottom))
-    final_source = final_source.resize((512, 512), Image.LANCZOS).convert("RGBA")
-
-    mask = Image.fromarray(mask).convert("L")  # Converting to grayscale PIL image
-
-    binary_mask = mask.point(lambda p: 255 if p > 0 else 0)
-    inverted_mask = ImageChops.invert(binary_mask)
-
-    alpha_image = Image.new("RGBA", final_source.size, (0, 0, 0, 0))
-    cnet_image = Image.composite(final_source, alpha_image, inverted_mask)
-
-    vae = AutoencoderKL.from_pretrained("madebyollin/sdxl-vae-fp16-fix").to("cpu")
-
-    # controlnet_model = ControlNetUnionModel.from_pretrained(
-    #     "xinsir/controlnet-union-sdxl-1.0"
-    # )
-
-    controlnet_model = ControlNetModel_Union.from_pretrained(
-        "xinsir/controlnet-union-sdxl-1.0"
+    # Applying edit
+    output = pipe(
+        prompt=instruction,
+        image=image,
+        guidance_scale=7.5,
+        image_guidance_scale=1.5,
+        num_inference_steps=50,
+        num_images_per_prompt=1
     )
 
-    pipe = StableDiffusionXLControlNetPipeline.from_pretrained(
-        "SG161222/RealVisXL_V5.0_Lightning",
-        vae=vae,
-        custom_pipeline="OzzyGT/pipeline_sdxl_fill",
-        controlnet=controlnet_model,
-        low_cpu_mem_usage=True
-    ).to("cpu")
-    pipe.scheduler = TCDScheduler.from_config(pipe.scheduler.config)
+    return output.images[0]  # PIL.Image
 
-    prompt = "high quality"
-    (
-        prompt_embeds,
-        negative_prompt_embeds,
-        pooled_prompt_embeds,
-        negative_pooled_prompt_embeds,
-    ) = pipe.encode_prompt(prompt, "cpu", True)
+# # Another googled approach (Under testing)
+# import cv2
+# from PIL import Image, ImageChops
 
-    image = pipe(
-        prompt_embeds=prompt_embeds,
-        negative_prompt_embeds=negative_prompt_embeds,
-        pooled_prompt_embeds=pooled_prompt_embeds,
-        negative_pooled_prompt_embeds=negative_pooled_prompt_embeds,
-        image=cnet_image,
-    )
+# from controlnet_union import ControlNetModel_Union
+# from diffusers import AutoencoderKL, StableDiffusionXLControlNetPipeline, TCDScheduler, ControlNetUnionModel
 
-    image = image.convert("RGBA")
-    cnet_image.paste(image, (0, 0), binary_mask)
 
-    cnet_image.save("../results/example_1/inpainted.png")
+
+# def inpaint_image(image_path, mask_path):
+#     image = Image.open(image_path).convert("RGB")
+#     mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+    
+#     width, height = image.size
+#     min_dimension = min(width, height)
+
+#     left = (width - min_dimension) / 2
+#     top = (height - min_dimension) / 2
+#     right = (width + min_dimension) / 2
+#     bottom = (height + min_dimension) / 2
+
+#     final_source = image.crop((left, top, right, bottom))
+#     final_source = final_source.resize((512, 512), Image.LANCZOS).convert("RGBA")
+
+#     mask = Image.fromarray(mask).convert("L")  # Converting to grayscale PIL image
+
+#     binary_mask = mask.point(lambda p: 255 if p > 0 else 0)
+#     inverted_mask = ImageChops.invert(binary_mask)
+
+#     alpha_image = Image.new("RGBA", final_source.size, (0, 0, 0, 0))
+#     cnet_image = Image.composite(final_source, alpha_image, inverted_mask)
+
+#     vae = AutoencoderKL.from_pretrained("madebyollin/sdxl-vae-fp16-fix").to("cpu")
+
+#     # controlnet_model = ControlNetUnionModel.from_pretrained(
+#     #     "xinsir/controlnet-union-sdxl-1.0"
+#     # )
+
+#     controlnet_model = ControlNetModel_Union.from_pretrained(
+#         "xinsir/controlnet-union-sdxl-1.0"
+#     )
+
+#     pipe = StableDiffusionXLControlNetPipeline.from_pretrained(
+#         "SG161222/RealVisXL_V5.0_Lightning",
+#         vae=vae,
+#         custom_pipeline="OzzyGT/pipeline_sdxl_fill",
+#         controlnet=controlnet_model,
+#         low_cpu_mem_usage=True
+#     ).to("cpu")
+#     pipe.scheduler = TCDScheduler.from_config(pipe.scheduler.config)
+
+#     prompt = "high quality"
+#     (
+#         prompt_embeds,
+#         negative_prompt_embeds,
+#         pooled_prompt_embeds,
+#         negative_pooled_prompt_embeds,
+#     ) = pipe.encode_prompt(prompt, "cpu", True)
+
+#     image = pipe(
+#         prompt_embeds=prompt_embeds,
+#         negative_prompt_embeds=negative_prompt_embeds,
+#         pooled_prompt_embeds=pooled_prompt_embeds,
+#         negative_pooled_prompt_embeds=negative_pooled_prompt_embeds,
+#         image=cnet_image,
+#     )
+
+#     image = image.convert("RGBA")
+#     cnet_image.paste(image, (0, 0), binary_mask)
+
+#     cnet_image.save("../results/example_1/inpainted.png")
